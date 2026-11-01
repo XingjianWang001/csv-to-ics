@@ -186,3 +186,37 @@ def test_main_rejects_unknown_time_zone(tmp_path):
     with pytest.raises(SystemExit) as exc:
         csv_to_ics.main([str(path), "--tz", "Mars/Olympus"])
     assert exc.value.code == 2
+
+
+def test_main_move_processed_keeps_existing_archived_file(tmp_path):
+    input_dir = tmp_path / "input"
+    write_csv(input_dir / "a.csv", '"New Quiz","2026-09-11"')
+    archived = write_csv(input_dir / "processed" / "a.csv", '"Old Quiz","2026-01-01"')
+
+    assert csv_to_ics.main([str(input_dir), "-o", str(tmp_path / "out"), "--move-processed"]) == 0
+
+    assert "Old Quiz" in archived.read_text(encoding="utf-8")
+    assert "New Quiz" in (input_dir / "processed" / "a-1.csv").read_text(encoding="utf-8")
+    assert not (input_dir / "a.csv").exists()
+
+
+def test_main_finds_uppercase_csv_extension(tmp_path):
+    input_dir = tmp_path / "input"
+    write_csv(input_dir / "CS101.CSV", '"CS101 Quiz","2026-09-11"')
+    output_dir = tmp_path / "out"
+
+    assert csv_to_ics.main([str(input_dir), "-o", str(output_dir)]) == 0
+
+    assert (output_dir / "CS101.ics").is_file()
+
+
+def test_main_reports_csv_files_that_would_share_an_output_file(tmp_path):
+    input_dir = tmp_path / "input"
+    write_csv(input_dir / "a.csv", '"Lower Quiz","2026-09-11"')
+    write_csv(input_dir / "a.CSV", '"Upper Quiz","2026-09-12"')
+    output_dir = tmp_path / "out"
+
+    assert csv_to_ics.main([str(input_dir), "-o", str(output_dir)]) == 1
+
+    ics = (output_dir / "a.ics").read_text(encoding="utf-8")
+    assert ("Lower Quiz" in ics) != ("Upper Quiz" in ics)  # one written, the other skipped

@@ -45,7 +45,7 @@ python csv_to_ics.py input --move-processed
 | `input` | (required) | A `.csv` file, or a folder of `.csv` files. A `processed/` subfolder is skipped. |
 | `-o`, `--output` | `./output` | Folder for the `.ics` files. The input folder's subfolder layout is kept. |
 | `--tz` | `America/Chicago` | [IANA time zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) for rows that have a time. |
-| `--move-processed` | off | After a CSV converts with no errors, move it to `processed/` inside the input folder. |
+| `--move-processed` | off | After a CSV converts with no errors, move it to `processed/` inside the input folder. If a file with that name is already there, `-1`, `-2`, … is added to the name instead of overwriting it. |
 
 Each calendar is named after its CSV file (for example `demo1001`). Apps that support it show that name when you import.
 
