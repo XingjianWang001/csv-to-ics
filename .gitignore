@@ -1,0 +1,16 @@
+# Personal schedules: keep your own CSV/ICS files here, out of git
+/input/
+/output/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
