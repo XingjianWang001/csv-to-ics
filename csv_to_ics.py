@@ -66,7 +66,6 @@ def row_to_event(row: dict[str, str | None], tz: ZoneInfo) -> Event:
     end_date = _parse_date(end_date_str, "End Date") if end_date_str else None
 
     event = Event()
-    event.add("uid", make_uid(subject, start_date_str, start_time_str))
     event.add("dtstamp", datetime.now(timezone.utc))
     event.add("summary", subject)
 
@@ -90,6 +89,9 @@ def row_to_event(row: dict[str, str | None], tz: ZoneInfo) -> Event:
         if end <= start:
             raise RowError("End Date is before Start Date")
 
+    # Built from the parsed values, so 9:00 and 09:00 give the same UID.
+    clock = start.strftime(TIME_FORMAT) if start_time_str else ""
+    event.add("uid", make_uid(subject, start_date.isoformat(), clock))
     event.add("dtstart", start)
     # DTEND must be later than DTSTART; without it, the event ends when it starts (RFC 5545).
     if end != start:

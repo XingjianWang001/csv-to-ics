@@ -86,6 +86,20 @@ def test_uid_is_stable():
     assert event_from(**row)["uid"] != event_from(**{**row, "Start Time": "11:00"})["uid"]
 
 
+# The expected UIDs are what the padded form gave before UIDs ignored padding,
+# so calendars that already imported them see the same events.
+@pytest.mark.parametrize("start_date, start_time, uid", [
+    ("2026-09-08", "09:00", "beff53ebcbf243933d0eb48aeb1db82d51b8a028@csv-to-ics"),
+    ("2026-09-08", "9:00", "beff53ebcbf243933d0eb48aeb1db82d51b8a028@csv-to-ics"),
+    ("2026-9-8", "09:00", "beff53ebcbf243933d0eb48aeb1db82d51b8a028@csv-to-ics"),
+    ("2026-09-08", "", "40a35a0ebee43a783ae1b8a03ae6da23b727c0d5@csv-to-ics"),
+    ("2026-9-8", "", "40a35a0ebee43a783ae1b8a03ae6da23b727c0d5@csv-to-ics"),
+])
+def test_uid_ignores_zero_padding(start_date, start_time, uid):
+    row = {"Subject": "CS101 Quiz", "Start Date": start_date, "Start Time": start_time}
+    assert event_from(**row)["uid"] == uid
+
+
 @pytest.mark.parametrize("row, message", [
     ({"Subject": "", "Start Date": "2026-09-11"}, "Subject is empty"),
     ({"Subject": "X", "Start Date": ""}, "Start Date is empty"),
