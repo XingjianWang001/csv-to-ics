@@ -45,7 +45,7 @@ python csv_to_ics.py input --move-processed
 | `input` | （必填） | 一个 `.csv` 文件，或包含 `.csv` 的目录。会跳过 `processed/` 子目录。 |
 | `-o`, `--output` | `./output` | `.ics` 输出目录，保留输入目录的子目录结构。 |
 | `--tz` | `America/Chicago` | 带时间的行所用的 [IANA 时区](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)。 |
-| `--move-processed` | 关闭 | CSV 转换无错误后，移到输入目录下的 `processed/`。 |
+| `--move-processed` | 关闭 | CSV 转换无错误后，移到输入目录下的 `processed/`。若已有同名文件，会在文件名后加 `-1`、`-2`……，不会覆盖。 |
 
 每个日历以 CSV 文件名命名（例如 `demo1001`），支持的日历应用导入时会显示这个名字。
 

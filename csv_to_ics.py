@@ -162,14 +162,27 @@ def convert_csv(csv_path: Path, tz: ZoneInfo) -> tuple[Calendar, list[str]]:
 
 
 def find_csv_files(input_path: Path) -> list[Path]:
-    """List the CSV files to convert, skipping the processed/ folder."""
+    """List the CSV files to convert, skipping the processed/ folder.
+
+    The extension match ignores case, since Excel and other tools often write ".CSV".
+    """
     if input_path.is_file():
         return [input_path]
     processed = input_path / PROCESSED_DIRNAME
     return sorted(
-        p for p in input_path.rglob("*.csv")
-        if p.is_file() and processed not in p.parents
+        p for p in input_path.rglob("*")
+        if p.suffix.lower() == ".csv" and p.is_file() and processed not in p.parents
     )
+
+
+def unused_path(path: Path) -> Path:
+    """Return path, or path with -1, -2, ... added to its stem if that name is taken."""
+    candidate = path
+    n = 0
+    while candidate.exists():
+        n += 1
+        candidate = path.with_name(f"{path.stem}-{n}{path.suffix}")
+    return candidate
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -210,9 +223,20 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     had_errors = False
+    written: dict[Path, Path] = {}
     for csv_path in csv_files:
         relative = csv_path.relative_to(input_root)
         output_path = args.output / relative.with_suffix(".ics")
+        if output_path in written:
+            # e.g. a.csv and a.CSV, which are different files on case-sensitive systems.
+            print(
+                f"error: {csv_path}: skipped, would overwrite {output_path} "
+                f"(already written from {written[output_path]})",
+                file=sys.stderr,
+            )
+            had_errors = True
+            continue
+        written[output_path] = csv_path
 
         calendar, errors = convert_csv(csv_path, tz)
         for message in errors:
@@ -225,7 +249,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{csv_path} -> {output_path} ({count} event{'s' if count != 1 else ''})")
 
         if args.move_processed and not errors:
-            processed_path = input_root / PROCESSED_DIRNAME / relative
+            # Never overwrite a CSV archived by an earlier run (e.g. fixed and re-run).
+            processed_path = unused_path(input_root / PROCESSED_DIRNAME / relative)
             processed_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(csv_path), str(processed_path))
             print(f"moved {csv_path} -> {processed_path}")
