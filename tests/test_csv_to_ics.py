@@ -220,3 +220,17 @@ def test_main_reports_csv_files_that_would_share_an_output_file(tmp_path):
 
     ics = (output_dir / "a.ics").read_text(encoding="utf-8")
     assert ("Lower Quiz" in ics) != ("Upper Quiz" in ics)  # one written, the other skipped
+
+
+def test_main_reports_non_utf8_csv_and_converts_the_rest(tmp_path, capsys):
+    input_dir = tmp_path / "input"
+    write_csv(input_dir / "a.csv", '"A Quiz","2026-09-11"')
+    (input_dir / "b.csv").write_bytes((HEADER + '"作业","2026-09-12"\n').encode("gbk"))  # Chinese Excel default
+    write_csv(input_dir / "c.csv", '"C Quiz","2026-09-13"')
+
+    exit_code = csv_to_ics.main([str(input_dir), "-o", str(tmp_path / "out"), "--move-processed"])
+
+    assert exit_code == 1
+    assert "not UTF-8" in capsys.readouterr().err
+    assert (tmp_path / "out" / "c.ics").is_file()
+    assert (input_dir / "b.csv").is_file()  # not archived
