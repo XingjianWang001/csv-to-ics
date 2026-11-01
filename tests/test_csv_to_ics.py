@@ -122,6 +122,20 @@ def test_convert_csv_skips_bad_rows_and_reports_line_numbers(tmp_path):
     assert errors[1].startswith(f"{path}:5:") and "duplicate of line 2" in errors[1]
 
 
+def test_convert_csv_reports_out_of_range_values_and_keeps_going(tmp_path):
+    path = write_csv(
+        tmp_path / "cs101.csv",
+        '"CS101 Quiz","2026-09-11","","","","",99999999999999,""',
+        '"CS101 Last Day","9999-12-31","","","","","",""',
+        '"CS101 Exam","2026-09-12","","","","","",""',
+    )
+    calendar, errors = csv_to_ics.convert_csv(path, TZ)
+    assert [str(event["summary"]) for event in calendar.events] == ["CS101 Exam"]
+    assert len(errors) == 2
+    assert errors[0].startswith(f"{path}:2:") and "Alarm" in errors[0]
+    assert errors[1].startswith(f"{path}:3:")
+
+
 def test_convert_csv_missing_columns(tmp_path):
     path = tmp_path / "bad.csv"
     path.write_text("Title,Date\nX,2026-09-11\n", encoding="utf-8")

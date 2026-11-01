@@ -109,10 +109,14 @@ def row_to_event(row: dict[str, str | None], tz: ZoneInfo) -> Event:
             minutes = -1
         if minutes < 0:
             raise RowError(f"Alarm {alarm_str!r} is not a non-negative whole number of minutes")
+        try:
+            trigger = timedelta(minutes=-minutes)
+        except OverflowError:
+            raise RowError(f"Alarm {alarm_str!r} is too large") from None
         alarm = Alarm()
         alarm.add("action", "DISPLAY")
         alarm.add("description", subject)
-        alarm.add("trigger", timedelta(minutes=-minutes))
+        alarm.add("trigger", trigger)
         event.add_component(alarm)
 
     return event
@@ -145,7 +149,7 @@ def convert_csv(csv_path: Path, tz: ZoneInfo) -> tuple[Calendar, list[str]]:
                     continue
                 try:
                     event = row_to_event(row, tz)
-                except RowError as exc:
+                except (RowError, OverflowError) as exc:  # e.g. 9999-12-31 has no next day
                     errors.append(f"{csv_path}:{line}: {exc}")
                     continue
                 uid = str(event["uid"])
