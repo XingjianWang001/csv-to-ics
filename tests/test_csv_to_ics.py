@@ -52,13 +52,14 @@ def test_multi_day_all_day_event():
     assert event.decoded("dtend") == date(2026, 10, 21)
 
 
-def test_start_time_without_end_time_is_point_in_time():
+@pytest.mark.parametrize("end_time", ["", "23:59"])
+def test_point_in_time_event_has_no_dtend(end_time):
     event = event_from(**{
         "Subject": "CS101 HW1 Due", "Start Date": "2026-09-18", "Start Time": "23:59",
+        "End Time": end_time,
     })
-    due = datetime(2026, 9, 18, 23, 59, tzinfo=TZ)
-    assert event.decoded("dtstart") == due
-    assert event.decoded("dtend") == due
+    assert event.decoded("dtstart") == datetime(2026, 9, 18, 23, 59, tzinfo=TZ)
+    assert "dtend" not in event  # RFC 5545: DTEND must be later than DTSTART
 
 
 def test_alarm_description_and_categories():

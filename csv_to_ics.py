@@ -91,7 +91,9 @@ def row_to_event(row: dict[str, str | None], tz: ZoneInfo) -> Event:
             raise RowError("End Date is before Start Date")
 
     event.add("dtstart", start)
-    event.add("dtend", end)
+    # DTEND must be later than DTSTART; without it, the event ends when it starts (RFC 5545).
+    if end != start:
+        event.add("dtend", end)
 
     description = values.get("Description", "")
     if description:
