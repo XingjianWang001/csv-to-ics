@@ -104,7 +104,10 @@ def test_uid_ignores_zero_padding(start_date, start_time, uid):
     ({"Subject": "", "Start Date": "2026-09-11"}, "Subject is empty"),
     ({"Subject": "X", "Start Date": ""}, "Start Date is empty"),
     ({"Subject": "X", "Start Date": "09/11/2026"}, "YYYY-MM-DD"),
+    ({"Subject": "X", "Start Date": "2026-02-30"}, "is not a valid YYYY-MM-DD date"),
     ({"Subject": "X", "Start Date": "2026-09-11", "Start Time": "10am"}, "HH:MM"),
+    ({"Subject": "X", "Start Date": "2026-09-11", "Start Time": "25:00"},
+     "is not a valid HH:MM time"),
     ({"Subject": "X", "Start Date": "2026-09-11", "End Time": "11:00"},
      "Start Time is empty"),
     ({"Subject": "X", "Start Date": "2026-09-11", "Start Time": "10:00",
@@ -171,6 +174,14 @@ def test_convert_csv_missing_columns(tmp_path):
     calendar, errors = csv_to_ics.convert_csv(path, TZ)
     assert not calendar.events
     assert "missing required column(s): Subject, Start Date" in errors[0]
+
+
+def test_convert_csv_ignores_spaces_around_column_names(tmp_path):
+    path = tmp_path / "spaced.csv"
+    path.write_text("Subject, Start Date , Start Time\nCS101 Quiz,2026-09-11,10:00\n", encoding="utf-8")
+    calendar, errors = csv_to_ics.convert_csv(path, TZ)
+    assert errors == []
+    assert calendar.events[0].decoded("dtstart") == datetime(2026, 9, 11, 10, 0, tzinfo=TZ)
 
 
 def test_convert_csv_accepts_utf8_bom(tmp_path):

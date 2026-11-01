@@ -31,14 +31,14 @@ def _parse_date(value: str, column: str) -> date:
     try:
         return datetime.strptime(value, DATE_FORMAT).date()
     except ValueError:
-        raise RowError(f"{column} {value!r} is not in YYYY-MM-DD format") from None
+        raise RowError(f"{column} {value!r} is not a valid YYYY-MM-DD date") from None
 
 
 def _parse_time(day: date, value: str, column: str, tz: ZoneInfo) -> datetime:
     try:
         clock = datetime.strptime(value, TIME_FORMAT).time()
     except ValueError:
-        raise RowError(f"{column} {value!r} is not in HH:MM format") from None
+        raise RowError(f"{column} {value!r} is not a valid HH:MM time") from None
     return datetime.combine(day, clock, tzinfo=tz)
 
 
@@ -143,7 +143,7 @@ def convert_csv(csv_path: Path, tz: ZoneInfo) -> tuple[Calendar, list[str]]:
         # Not DictReader: it skips blank lines unseen, which hides the line a row starts on.
         reader = csv.reader(f)
         try:
-            fieldnames = next(reader, [])
+            fieldnames = [name.strip() for name in next(reader, [])]
             missing = [c for c in REQUIRED_COLUMNS if c not in fieldnames]
             if missing:
                 errors.append(f"{csv_path}: missing required column(s): {', '.join(missing)}")
