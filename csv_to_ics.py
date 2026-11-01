@@ -31,14 +31,14 @@ def _parse_date(value: str, column: str) -> date:
     try:
         return datetime.strptime(value, DATE_FORMAT).date()
     except ValueError:
-        raise RowError(f"{column} {value!r} is not in YYYY-MM-DD format") from None
+        raise RowError(f"{column} {value!r} is not a valid YYYY-MM-DD date") from None
 
 
 def _parse_time(day: date, value: str, column: str, tz: ZoneInfo) -> datetime:
     try:
         clock = datetime.strptime(value, TIME_FORMAT).time()
     except ValueError:
-        raise RowError(f"{column} {value!r} is not in HH:MM format") from None
+        raise RowError(f"{column} {value!r} is not a valid HH:MM time") from None
     return datetime.combine(day, clock, tzinfo=tz)
 
 
@@ -66,7 +66,6 @@ def row_to_event(row: dict[str, str | None], tz: ZoneInfo) -> Event:
     end_date = _parse_date(end_date_str, "End Date") if end_date_str else None
 
     event = Event()
-    event.add("uid", make_uid(subject, start_date_str, start_time_str))
     event.add("dtstamp", datetime.now(timezone.utc))
     event.add("summary", subject)
 
@@ -90,8 +89,13 @@ def row_to_event(row: dict[str, str | None], tz: ZoneInfo) -> Event:
         if end <= start:
             raise RowError("End Date is before Start Date")
 
+    # Built from the parsed values, so 9:00 and 09:00 give the same UID.
+    clock = start.strftime(TIME_FORMAT) if start_time_str else ""
+    event.add("uid", make_uid(subject, start_date.isoformat(), clock))
     event.add("dtstart", start)
-    event.add("dtend", end)
+    # DTEND must be later than DTSTART; without it, the event ends when it starts (RFC 5545).
+    if end != start:
+        event.add("dtend", end)
 
     description = values.get("Description", "")
     if description:
@@ -109,10 +113,14 @@ def row_to_event(row: dict[str, str | None], tz: ZoneInfo) -> Event:
             minutes = -1
         if minutes < 0:
             raise RowError(f"Alarm {alarm_str!r} is not a non-negative whole number of minutes")
+        try:
+            trigger = timedelta(minutes=-minutes)
+        except OverflowError:
+            raise RowError(f"Alarm {alarm_str!r} is too large") from None
         alarm = Alarm()
         alarm.add("action", "DISPLAY")
         alarm.add("description", subject)
-        alarm.add("trigger", timedelta(minutes=-minutes))
+        alarm.add("trigger", trigger)
         event.add_component(alarm)
 
     return event
@@ -132,20 +140,25 @@ def convert_csv(csv_path: Path, tz: ZoneInfo) -> tuple[Calendar, list[str]]:
 
     # utf-8-sig tolerates the byte-order mark that Excel adds.
     with csv_path.open(newline="", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
+        # Not DictReader: it skips blank lines unseen, which hides the line a row starts on.
+        reader = csv.reader(f)
         try:
-            missing = [c for c in REQUIRED_COLUMNS if c not in (reader.fieldnames or [])]
+            fieldnames = [name.strip() for name in next(reader, [])]
+            missing = [c for c in REQUIRED_COLUMNS if c not in fieldnames]
             if missing:
                 errors.append(f"{csv_path}: missing required column(s): {', '.join(missing)}")
                 return calendar, errors
 
-            for row in reader:
-                line = reader.line_num
-                if not any((value or "").strip() for value in row.values() if isinstance(value, str)):
+            # A quoted cell can span lines, and line_num is the last line read so far.
+            next_line = reader.line_num + 1
+            for cells in reader:
+                line, next_line = next_line, reader.line_num + 1
+                row = dict(zip(fieldnames, cells))
+                if not any(value.strip() for value in row.values()):
                     continue
                 try:
                     event = row_to_event(row, tz)
-                except RowError as exc:
+                except (RowError, OverflowError) as exc:  # e.g. 9999-12-31 has no next day
                     errors.append(f"{csv_path}:{line}: {exc}")
                     continue
                 uid = str(event["uid"])

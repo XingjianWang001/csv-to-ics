@@ -52,13 +52,14 @@ def test_multi_day_all_day_event():
     assert event.decoded("dtend") == date(2026, 10, 21)
 
 
-def test_start_time_without_end_time_is_point_in_time():
+@pytest.mark.parametrize("end_time", ["", "23:59"])
+def test_point_in_time_event_has_no_dtend(end_time):
     event = event_from(**{
         "Subject": "CS101 HW1 Due", "Start Date": "2026-09-18", "Start Time": "23:59",
+        "End Time": end_time,
     })
-    due = datetime(2026, 9, 18, 23, 59, tzinfo=TZ)
-    assert event.decoded("dtstart") == due
-    assert event.decoded("dtend") == due
+    assert event.decoded("dtstart") == datetime(2026, 9, 18, 23, 59, tzinfo=TZ)
+    assert "dtend" not in event  # RFC 5545: DTEND must be later than DTSTART
 
 
 def test_alarm_description_and_categories():
@@ -85,11 +86,28 @@ def test_uid_is_stable():
     assert event_from(**row)["uid"] != event_from(**{**row, "Start Time": "11:00"})["uid"]
 
 
+# The expected UIDs are what the padded form gave before UIDs ignored padding,
+# so calendars that already imported them see the same events.
+@pytest.mark.parametrize("start_date, start_time, uid", [
+    ("2026-09-08", "09:00", "beff53ebcbf243933d0eb48aeb1db82d51b8a028@csv-to-ics"),
+    ("2026-09-08", "9:00", "beff53ebcbf243933d0eb48aeb1db82d51b8a028@csv-to-ics"),
+    ("2026-9-8", "09:00", "beff53ebcbf243933d0eb48aeb1db82d51b8a028@csv-to-ics"),
+    ("2026-09-08", "", "40a35a0ebee43a783ae1b8a03ae6da23b727c0d5@csv-to-ics"),
+    ("2026-9-8", "", "40a35a0ebee43a783ae1b8a03ae6da23b727c0d5@csv-to-ics"),
+])
+def test_uid_ignores_zero_padding(start_date, start_time, uid):
+    row = {"Subject": "CS101 Quiz", "Start Date": start_date, "Start Time": start_time}
+    assert event_from(**row)["uid"] == uid
+
+
 @pytest.mark.parametrize("row, message", [
     ({"Subject": "", "Start Date": "2026-09-11"}, "Subject is empty"),
     ({"Subject": "X", "Start Date": ""}, "Start Date is empty"),
     ({"Subject": "X", "Start Date": "09/11/2026"}, "YYYY-MM-DD"),
+    ({"Subject": "X", "Start Date": "2026-02-30"}, "is not a valid YYYY-MM-DD date"),
     ({"Subject": "X", "Start Date": "2026-09-11", "Start Time": "10am"}, "HH:MM"),
+    ({"Subject": "X", "Start Date": "2026-09-11", "Start Time": "25:00"},
+     "is not a valid HH:MM time"),
     ({"Subject": "X", "Start Date": "2026-09-11", "End Time": "11:00"},
      "Start Time is empty"),
     ({"Subject": "X", "Start Date": "2026-09-11", "Start Time": "10:00",
@@ -122,12 +140,48 @@ def test_convert_csv_skips_bad_rows_and_reports_line_numbers(tmp_path):
     assert errors[1].startswith(f"{path}:5:") and "duplicate of line 2" in errors[1]
 
 
+def test_convert_csv_reports_the_first_line_of_multi_line_rows(tmp_path):
+    path = write_csv(
+        tmp_path / "cs101.csv",
+        '"CS101 Quiz","2026-09-11","","","","Bring\na pencil","",""',  # lines 2-3
+        '"CS101 Bad","not-a-date","","","","Two\nlines","",""',  # lines 4-5
+        "",  # line 6
+        '"CS101 Quiz","2026-09-11","","","","again","",""',  # line 7
+    )
+    _, errors = csv_to_ics.convert_csv(path, TZ)
+    assert len(errors) == 2
+    assert errors[0].startswith(f"{path}:4:")
+    assert errors[1].startswith(f"{path}:7:") and "duplicate of line 2" in errors[1]
+
+
+def test_convert_csv_reports_out_of_range_values_and_keeps_going(tmp_path):
+    path = write_csv(
+        tmp_path / "cs101.csv",
+        '"CS101 Quiz","2026-09-11","","","","",99999999999999,""',
+        '"CS101 Last Day","9999-12-31","","","","","",""',
+        '"CS101 Exam","2026-09-12","","","","","",""',
+    )
+    calendar, errors = csv_to_ics.convert_csv(path, TZ)
+    assert [str(event["summary"]) for event in calendar.events] == ["CS101 Exam"]
+    assert len(errors) == 2
+    assert errors[0].startswith(f"{path}:2:") and "Alarm" in errors[0]
+    assert errors[1].startswith(f"{path}:3:")
+
+
 def test_convert_csv_missing_columns(tmp_path):
     path = tmp_path / "bad.csv"
     path.write_text("Title,Date\nX,2026-09-11\n", encoding="utf-8")
     calendar, errors = csv_to_ics.convert_csv(path, TZ)
     assert not calendar.events
     assert "missing required column(s): Subject, Start Date" in errors[0]
+
+
+def test_convert_csv_ignores_spaces_around_column_names(tmp_path):
+    path = tmp_path / "spaced.csv"
+    path.write_text("Subject, Start Date , Start Time\nCS101 Quiz,2026-09-11,10:00\n", encoding="utf-8")
+    calendar, errors = csv_to_ics.convert_csv(path, TZ)
+    assert errors == []
+    assert calendar.events[0].decoded("dtstart") == datetime(2026, 9, 11, 10, 0, tzinfo=TZ)
 
 
 def test_convert_csv_accepts_utf8_bom(tmp_path):
