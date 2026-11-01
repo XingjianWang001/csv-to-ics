@@ -137,6 +137,20 @@ def test_convert_csv_skips_bad_rows_and_reports_line_numbers(tmp_path):
     assert errors[1].startswith(f"{path}:5:") and "duplicate of line 2" in errors[1]
 
 
+def test_convert_csv_reports_the_first_line_of_multi_line_rows(tmp_path):
+    path = write_csv(
+        tmp_path / "cs101.csv",
+        '"CS101 Quiz","2026-09-11","","","","Bring\na pencil","",""',  # lines 2-3
+        '"CS101 Bad","not-a-date","","","","Two\nlines","",""',  # lines 4-5
+        "",  # line 6
+        '"CS101 Quiz","2026-09-11","","","","again","",""',  # line 7
+    )
+    _, errors = csv_to_ics.convert_csv(path, TZ)
+    assert len(errors) == 2
+    assert errors[0].startswith(f"{path}:4:")
+    assert errors[1].startswith(f"{path}:7:") and "duplicate of line 2" in errors[1]
+
+
 def test_convert_csv_reports_out_of_range_values_and_keeps_going(tmp_path):
     path = write_csv(
         tmp_path / "cs101.csv",

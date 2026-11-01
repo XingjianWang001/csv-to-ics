@@ -140,16 +140,21 @@ def convert_csv(csv_path: Path, tz: ZoneInfo) -> tuple[Calendar, list[str]]:
 
     # utf-8-sig tolerates the byte-order mark that Excel adds.
     with csv_path.open(newline="", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
+        # Not DictReader: it skips blank lines unseen, which hides the line a row starts on.
+        reader = csv.reader(f)
         try:
-            missing = [c for c in REQUIRED_COLUMNS if c not in (reader.fieldnames or [])]
+            fieldnames = next(reader, [])
+            missing = [c for c in REQUIRED_COLUMNS if c not in fieldnames]
             if missing:
                 errors.append(f"{csv_path}: missing required column(s): {', '.join(missing)}")
                 return calendar, errors
 
-            for row in reader:
-                line = reader.line_num
-                if not any((value or "").strip() for value in row.values() if isinstance(value, str)):
+            # A quoted cell can span lines, and line_num is the last line read so far.
+            next_line = reader.line_num + 1
+            for cells in reader:
+                line, next_line = next_line, reader.line_num + 1
+                row = dict(zip(fieldnames, cells))
+                if not any(value.strip() for value in row.values()):
                     continue
                 try:
                     event = row_to_event(row, tz)
