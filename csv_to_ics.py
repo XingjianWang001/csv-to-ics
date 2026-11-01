@@ -133,29 +133,34 @@ def convert_csv(csv_path: Path, tz: ZoneInfo) -> tuple[Calendar, list[str]]:
     # utf-8-sig tolerates the byte-order mark that Excel adds.
     with csv_path.open(newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
-        missing = [c for c in REQUIRED_COLUMNS if c not in (reader.fieldnames or [])]
-        if missing:
-            errors.append(f"{csv_path}: missing required column(s): {', '.join(missing)}")
-            return calendar, errors
+        try:
+            missing = [c for c in REQUIRED_COLUMNS if c not in (reader.fieldnames or [])]
+            if missing:
+                errors.append(f"{csv_path}: missing required column(s): {', '.join(missing)}")
+                return calendar, errors
 
-        for row in reader:
-            line = reader.line_num
-            if not any((value or "").strip() for value in row.values() if isinstance(value, str)):
-                continue
-            try:
-                event = row_to_event(row, tz)
-            except RowError as exc:
-                errors.append(f"{csv_path}:{line}: {exc}")
-                continue
-            uid = str(event["uid"])
-            if uid in seen_uids:
-                errors.append(
-                    f"{csv_path}:{line}: duplicate of line {seen_uids[uid]} "
-                    "(same Subject, Start Date and Start Time)"
-                )
-                continue
-            seen_uids[uid] = line
-            calendar.add_component(event)
+            for row in reader:
+                line = reader.line_num
+                if not any((value or "").strip() for value in row.values() if isinstance(value, str)):
+                    continue
+                try:
+                    event = row_to_event(row, tz)
+                except RowError as exc:
+                    errors.append(f"{csv_path}:{line}: {exc}")
+                    continue
+                uid = str(event["uid"])
+                if uid in seen_uids:
+                    errors.append(
+                        f"{csv_path}:{line}: duplicate of line {seen_uids[uid]} "
+                        "(same Subject, Start Date and Start Time)"
+                    )
+                    continue
+                seen_uids[uid] = line
+                calendar.add_component(event)
+        except UnicodeDecodeError:
+            # e.g. Excel's plain "CSV" on Chinese Windows is GBK.
+            errors.append(f"{csv_path}: file is not UTF-8; re-save it as \"CSV UTF-8\"")
+            return calendar, errors
 
     calendar.add_missing_timezones()
     return calendar, errors
