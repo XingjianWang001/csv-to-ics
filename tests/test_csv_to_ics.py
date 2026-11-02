@@ -288,3 +288,26 @@ def test_main_reports_non_utf8_csv_and_converts_the_rest(tmp_path, capsys):
     assert "not UTF-8" in capsys.readouterr().err
     assert (tmp_path / "out" / "c.ics").is_file()
     assert (input_dir / "b.csv").is_file()  # not archived
+
+
+def test_main_keeps_existing_ics_when_csv_cannot_be_read(tmp_path, capsys):
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "out"
+    write_csv(input_dir / "a.csv", '"A Quiz","2026-09-11"')
+    assert csv_to_ics.main([str(input_dir), "-o", str(output_dir)]) == 0
+    (input_dir / "a.csv").write_bytes((HEADER + '"测验","2026-09-11"\n').encode("gbk"))  # re-saved as ANSI
+
+    assert csv_to_ics.main([str(input_dir), "-o", str(output_dir)]) == 1
+
+    assert "A Quiz" in (output_dir / "a.ics").read_text(encoding="utf-8")
+    assert "not writing" in capsys.readouterr().err
+
+
+def test_leading_blank_lines_before_header_are_skipped(tmp_path):
+    csv_path = tmp_path / "a.csv"
+    csv_path.write_text("\n\n" + HEADER + '"A Quiz","2026-09-11","10:00","","25:00"\n', encoding="utf-8")
+
+    calendar, errors = csv_to_ics.convert_csv(csv_path, TZ)
+
+    assert len(calendar.events) == 0
+    assert errors and errors[0].startswith(f"{csv_path}:4:")  # line numbers still count the blank lines

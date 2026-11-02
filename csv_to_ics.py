@@ -143,7 +143,8 @@ def convert_csv(csv_path: Path, tz: ZoneInfo) -> tuple[Calendar, list[str]]:
         # Not DictReader: it skips blank lines unseen, which hides the line a row starts on.
         reader = csv.reader(f)
         try:
-            fieldnames = [name.strip() for name in next(reader, [])]
+            header = next((cells for cells in reader if any(c.strip() for c in cells)), [])  # skip leading blank lines
+            fieldnames = [name.strip() for name in header]
             missing = [c for c in REQUIRED_COLUMNS if c not in fieldnames]
             if missing:
                 errors.append(f"{csv_path}: missing required column(s): {', '.join(missing)}")
@@ -260,6 +261,10 @@ def main(argv: list[str] | None = None) -> int:
         for message in errors:
             print(f"error: {message}", file=sys.stderr)
         had_errors = had_errors or bool(errors)
+        if errors and not calendar.events:
+            # Keep an .ics from an earlier good run rather than replace it with an empty calendar.
+            print(f"error: {csv_path}: no events converted, not writing {output_path}", file=sys.stderr)
+            continue
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(calendar.to_ical())
