@@ -82,7 +82,7 @@ See [examples/demo1001.csv](examples/demo1001.csv) and the [`.ics` it produces](
 
 ### Errors
 
-If a row has a problem (a bad date, an end before the start, a duplicate, …), the tool prints the file name, the line number and the reason, skips that row and still converts the rest. When any row fails, the exit code is 1, and `--move-processed` leaves that CSV where it is so you can fix it and run again.
+If a row has a problem (a bad date, an end before the start, a duplicate, …), the tool prints the file name, the line number and the reason, skips that row and still converts the rest. When any row fails, the exit code is 1, and `--move-processed` leaves that CSV where it is so you can fix it and run again. If a whole file cannot be read (not UTF-8, missing required columns) or none of its rows convert, no `.ics` is written for it, so an `.ics` from an earlier run is kept.
 
 ### Re-importing
 
