@@ -311,3 +311,49 @@ def test_leading_blank_lines_before_header_are_skipped(tmp_path):
 
     assert len(calendar.events) == 0
     assert errors and errors[0].startswith(f"{csv_path}:4:")  # line numbers still count the blank lines
+
+
+def test_main_keeps_existing_ics_when_csv_turns_non_utf8_mid_file(tmp_path, capsys):
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "out"
+    write_csv(input_dir / "a.csv", '"A Quiz","2026-09-11"')
+    assert csv_to_ics.main([str(input_dir), "-o", str(output_dir)]) == 0
+    rows = "".join(f'"Quiz {n}","2026-09-11"\n' for n in range(1000))  # past the decoder's first chunk
+    (input_dir / "a.csv").write_bytes(HEADER.encode() + rows.encode() + '"测验","2026-09-12"\n'.encode("gbk"))
+
+    assert csv_to_ics.main([str(input_dir), "-o", str(output_dir)]) == 1
+
+    assert "A Quiz" in (output_dir / "a.ics").read_text(encoding="utf-8")
+    assert "not UTF-8" in capsys.readouterr().err
+
+
+def test_main_reports_unclosed_quote_and_converts_the_rest(tmp_path, capsys):
+    input_dir = tmp_path / "input"
+    (input_dir / "a.csv").parent.mkdir(parents=True)
+    (input_dir / "a.csv").write_text(HEADER + '"A Quiz","2026-09-11"\n"B Quiz,"2026-09-12"\n"C Quiz","2026-09-13"\n', encoding="utf-8")
+    write_csv(input_dir / "b.csv", '"B Quiz","2026-09-12"')
+
+    assert csv_to_ics.main([str(input_dir), "-o", str(tmp_path / "out")]) == 1
+
+    assert "a.csv" in capsys.readouterr().err
+    assert not (tmp_path / "out" / "a.ics").exists()
+    assert (tmp_path / "out" / "b.ics").is_file()
+
+
+def test_convert_csv_reports_rows_with_more_cells_than_header(tmp_path):
+    path = write_csv(
+        tmp_path / "cs101.csv",
+        '"CS101 Quiz",2026-09-11,,,,,,Quiz, Graded',  # unquoted comma in Categories
+        '"CS101 Exam","2026-09-12","","","","","","","",""',  # trailing empty cells are fine
+    )
+    calendar, errors = csv_to_ics.convert_csv(path, TZ)
+    assert [str(event["summary"]) for event in calendar.events] == ["CS101 Exam"]
+    assert len(errors) == 1 and errors[0].startswith(f"{path}:2:")
+
+
+def test_timezone_definition_covers_events_after_2038(tmp_path):
+    path = write_csv(tmp_path / "cs101.csv", '"CS101 Lecture","2045-07-10","10:00","","11:00"')
+    calendar, _ = csv_to_ics.convert_csv(path, TZ)
+    parsed = Calendar.from_ical(calendar.to_ical())
+    vtimezone = parsed.timezones[0].to_ical().replace(b"\r\n ", b"")  # unfold long RDATE lines
+    assert b"20450312T030000" in vtimezone  # CDT starts 2045-03-12

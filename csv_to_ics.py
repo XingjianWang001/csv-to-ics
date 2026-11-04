@@ -14,7 +14,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from icalendar import Alarm, Calendar, Event
+from icalendar import Alarm, Calendar, Event, Timezone
 
 DEFAULT_TZ = "America/Chicago"
 DATE_FORMAT = "%Y-%m-%d"
@@ -141,7 +141,7 @@ def convert_csv(csv_path: Path, tz: ZoneInfo) -> tuple[Calendar, list[str]]:
     # utf-8-sig tolerates the byte-order mark that Excel adds.
     with csv_path.open(newline="", encoding="utf-8-sig") as f:
         # Not DictReader: it skips blank lines unseen, which hides the line a row starts on.
-        reader = csv.reader(f)
+        reader = csv.reader(f, strict=True)
         try:
             header = next((cells for cells in reader if any(c.strip() for c in cells)), [])  # skip leading blank lines
             fieldnames = [name.strip() for name in header]
@@ -154,6 +154,9 @@ def convert_csv(csv_path: Path, tz: ZoneInfo) -> tuple[Calendar, list[str]]:
             next_line = reader.line_num + 1
             for cells in reader:
                 line, next_line = next_line, reader.line_num + 1
+                if any(c.strip() for c in cells[len(fieldnames):]):
+                    errors.append(f"{csv_path}:{line}: more cells than columns; quote values that contain commas")
+                    continue
                 row = dict(zip(fieldnames, cells))
                 if not any(value.strip() for value in row.values()):
                     continue
@@ -174,9 +177,17 @@ def convert_csv(csv_path: Path, tz: ZoneInfo) -> tuple[Calendar, list[str]]:
         except UnicodeDecodeError:
             # e.g. Excel's plain "CSV" on Chinese Windows is GBK.
             errors.append(f"{csv_path}: file is not UTF-8; re-save it as \"CSV UTF-8\"")
-            return calendar, errors
+            return Calendar(), errors  # no events, so main() keeps the old .ics
+        except csv.Error as exc:  # e.g. a quote that is never closed
+            errors.append(f"{csv_path}: not valid CSV near line {reader.line_num} ({exc}); check for an unclosed quote")
+            return Calendar(), errors
 
-    calendar.add_missing_timezones()
+    days = [d.date() if isinstance(d, datetime) else d for e in calendar.events for d in (e.start, e.end)]
+    # shortcut: icalendar overflows when last_date is within ~2 months of date.max, so cap at 9999-01-01.
+    calendar.add_missing_timezones(
+        first_date=min([Timezone.DEFAULT_FIRST_DATE, *days]),
+        last_date=min(max([Timezone.DEFAULT_LAST_DATE, *days]), date(9998, 12, 31)) + timedelta(days=1),
+    )
     return calendar, errors
 
 
