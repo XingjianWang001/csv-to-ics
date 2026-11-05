@@ -42,7 +42,7 @@ python csv_to_ics.py input --move-processed
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
-| `input` | （必填） | 一个 `.csv` 文件，或包含 `.csv` 的目录。会跳过 `processed/` 子目录。 |
+| `input` | （必填） | 一个 `.csv` 文件，或包含 `.csv` 的目录。任意层级的 `processed/` 子目录都会跳过。 |
 | `-o`, `--output` | `./output` | `.ics` 输出目录，保留输入目录的子目录结构。 |
 | `--tz` | `America/Chicago` | 带时间的行所用的 [IANA 时区](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)。 |
 | `--move-processed` | 关闭 | CSV 转换无错误后，移到输入目录下的 `processed/`。若已有同名文件，会在文件名后加 `-1`、`-2`……，不会覆盖。 |
@@ -51,7 +51,7 @@ python csv_to_ics.py input --move-processed
 
 ## CSV 格式
 
-第一行必须是下面的表头。只有 `Subject` 和 `Start Date` 是必填的，其他列可以留空或省略。
+第一行必须是下面的表头。只有 `Subject` 和 `Start Date` 是必填的，其他列可以留空或省略。出现其他列名，或者同一列出现两次，都会报错，以免把 `Start time` 拼错后，考试被悄悄变成全天事件。
 
 ```csv
 Subject,Start Date,Start Time,End Date,End Time,Description,Alarm,Categories
@@ -82,7 +82,7 @@ Subject,Start Date,Start Time,End Date,End Time,Description,Alarm,Categories
 
 ### 错误处理
 
-某一行有问题（日期格式错误、结束早于开始、重复等）时，会打印文件名、行号和原因，跳过这一行，其余行照常转换。只要有任何一行出错，退出码就是 1；使用 `--move-processed` 时，这个 CSV 也不会被移走，方便修正后重新运行。如果整个文件无法读取（不是 UTF-8、引号未闭合、缺少必需列），或者没有任何一行转换成功，就不会为它写出 `.ics`，之前生成的 `.ics` 会保留。
+某一行有问题（日期格式错误、结束早于开始、重复等）时，会打印文件名、行号和原因，跳过这一行，其余行照常转换。只要有任何一行出错，退出码就是 1；使用 `--move-processed` 时，这个 CSV 也不会被移走，方便修正后重新运行。如果整个文件无法读取（不是 UTF-8、引号未闭合、缺少列、列名未知或重复），或者没有任何一行转换成功，就不会为它写出 `.ics`，之前生成的 `.ics` 会保留。
 
 ### 重新导入
 

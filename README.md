@@ -42,7 +42,7 @@ python csv_to_ics.py input --move-processed
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `input` | (required) | A `.csv` file, or a folder of `.csv` files. A `processed/` subfolder is skipped. |
+| `input` | (required) | A `.csv` file, or a folder of `.csv` files. `processed/` subfolders are skipped at any depth. |
 | `-o`, `--output` | `./output` | Folder for the `.ics` files. The input folder's subfolder layout is kept. |
 | `--tz` | `America/Chicago` | [IANA time zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) for rows that have a time. |
 | `--move-processed` | off | After a CSV converts with no errors, move it to `processed/` inside the input folder. If a file with that name is already there, `-1`, `-2`, … is added to the name instead of overwriting it. |
@@ -51,7 +51,7 @@ Each calendar is named after its CSV file (for example `demo1001`). Apps that su
 
 ## CSV format
 
-The first row must be this header. Only `Subject` and `Start Date` are required; the other columns may be left blank or left out.
+The first row must be this header. Only `Subject` and `Start Date` are required; the other columns may be left blank or left out. Any other column name, or a column listed twice, is an error, so a misspelled `Start time` can't silently turn an exam into an all-day event.
 
 ```csv
 Subject,Start Date,Start Time,End Date,End Time,Description,Alarm,Categories
@@ -82,7 +82,7 @@ See [examples/demo1001.csv](examples/demo1001.csv) and the [`.ics` it produces](
 
 ### Errors
 
-If a row has a problem (a bad date, an end before the start, a duplicate, …), the tool prints the file name, the line number and the reason, skips that row and still converts the rest. When any row fails, the exit code is 1, and `--move-processed` leaves that CSV where it is so you can fix it and run again. If a whole file cannot be read (not UTF-8, an unclosed quote, missing required columns) or none of its rows convert, no `.ics` is written for it, so an `.ics` from an earlier run is kept.
+If a row has a problem (a bad date, an end before the start, a duplicate, …), the tool prints the file name, the line number and the reason, skips that row and still converts the rest. When any row fails, the exit code is 1, and `--move-processed` leaves that CSV where it is so you can fix it and run again. If a whole file cannot be read (not UTF-8, an unclosed quote, a missing, unknown or repeated column) or none of its rows convert, no `.ics` is written for it, so an `.ics` from an earlier run is kept.
 
 ### Re-importing
 
