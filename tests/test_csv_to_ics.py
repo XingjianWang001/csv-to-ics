@@ -290,19 +290,6 @@ def test_main_reports_non_utf8_csv_and_converts_the_rest(tmp_path, capsys):
     assert (input_dir / "b.csv").is_file()  # not archived
 
 
-def test_main_keeps_existing_ics_when_csv_cannot_be_read(tmp_path, capsys):
-    input_dir = tmp_path / "input"
-    output_dir = tmp_path / "out"
-    write_csv(input_dir / "a.csv", '"A Quiz","2026-09-11"')
-    assert csv_to_ics.main([str(input_dir), "-o", str(output_dir)]) == 0
-    (input_dir / "a.csv").write_bytes((HEADER + '"测验","2026-09-11"\n').encode("gbk"))  # re-saved as ANSI
-
-    assert csv_to_ics.main([str(input_dir), "-o", str(output_dir)]) == 1
-
-    assert "A Quiz" in (output_dir / "a.ics").read_text(encoding="utf-8")
-    assert "not writing" in capsys.readouterr().err
-
-
 def test_leading_blank_lines_before_header_are_skipped(tmp_path):
     csv_path = tmp_path / "a.csv"
     csv_path.write_text("\n\n" + HEADER + '"A Quiz","2026-09-11","10:00","","25:00"\n', encoding="utf-8")
@@ -311,20 +298,6 @@ def test_leading_blank_lines_before_header_are_skipped(tmp_path):
 
     assert len(calendar.events) == 0
     assert errors and errors[0].startswith(f"{csv_path}:4:")  # line numbers still count the blank lines
-
-
-def test_main_keeps_existing_ics_when_csv_turns_non_utf8_mid_file(tmp_path, capsys):
-    input_dir = tmp_path / "input"
-    output_dir = tmp_path / "out"
-    write_csv(input_dir / "a.csv", '"A Quiz","2026-09-11"')
-    assert csv_to_ics.main([str(input_dir), "-o", str(output_dir)]) == 0
-    rows = "".join(f'"Quiz {n}","2026-09-11"\n' for n in range(1000))  # past the decoder's first chunk
-    (input_dir / "a.csv").write_bytes(HEADER.encode() + rows.encode() + '"测验","2026-09-12"\n'.encode("gbk"))
-
-    assert csv_to_ics.main([str(input_dir), "-o", str(output_dir)]) == 1
-
-    assert "A Quiz" in (output_dir / "a.ics").read_text(encoding="utf-8")
-    assert "not UTF-8" in capsys.readouterr().err
 
 
 def test_main_reports_unclosed_quote_and_converts_the_rest(tmp_path, capsys):
@@ -357,3 +330,77 @@ def test_timezone_definition_covers_events_after_2038(tmp_path):
     parsed = Calendar.from_ical(calendar.to_ical())
     vtimezone = parsed.timezones[0].to_ical().replace(b"\r\n ", b"")  # unfold long RDATE lines
     assert b"20450312T030000" in vtimezone  # CDT starts 2045-03-12
+
+
+# Every way a CSV can be bad. Each one must leave the earlier .ics untouched, the CSV unarchived, and the batch going.
+BAD_CSVS = {
+    "re-saved as ANSI": (HEADER + '"测验","2026-09-11"\n').encode("gbk"),
+    "non-UTF-8 mid-file": HEADER.encode()
+    + "".join(f'"Quiz {n}","2026-09-11"\n' for n in range(1000)).encode()  # past the decoder's first chunk
+    + '"测验","2026-09-12"\n'.encode("gbk"),
+    "unclosed quote": (HEADER + '"A Quiz,"2026-09-11"\n').encode(),
+    "header only": HEADER.encode(),
+    "blank rows only": (HEADER + ",,,,,,,\n").encode(),
+    "misspelled column": (HEADER.replace("Start Time", "Start time") + '"A Exam","2026-09-11","10:00"\n').encode(),
+    "repeated column": (HEADER.replace("Alarm", "Description") + '"A Quiz","2026-09-11","","","","Room 1","Room 2"\n').encode(),
+}
+
+
+@pytest.mark.parametrize("content", [pytest.param(c, id=name) for name, c in BAD_CSVS.items()])
+def test_bad_csv_keeps_the_earlier_ics_and_the_batch_goes_on(tmp_path, content):
+    input_dir, output_dir = tmp_path / "input", tmp_path / "out"
+    write_csv(input_dir / "a.csv", '"A Quiz","2026-09-11"')
+    assert csv_to_ics.main([str(input_dir), "-o", str(output_dir)]) == 0
+    good_ics = (output_dir / "a.ics").read_bytes()
+    (input_dir / "a.csv").write_bytes(content)
+    write_csv(input_dir / "b.csv", '"B Quiz","2026-09-12"')
+
+    assert csv_to_ics.main([str(input_dir), "-o", str(output_dir), "--move-processed"]) == 1
+
+    assert (output_dir / "a.ics").read_bytes() == good_ics
+    assert (input_dir / "a.csv").is_file()
+    assert (output_dir / "b.ics").is_file()
+
+
+def test_failed_write_keeps_the_earlier_ics_and_the_batch_goes_on(tmp_path, monkeypatch, capsys):
+    input_dir, output_dir = tmp_path / "input", tmp_path / "out"
+    write_csv(input_dir / "a.csv", '"A Quiz","2026-09-11"')
+    assert csv_to_ics.main([str(input_dir), "-o", str(output_dir)]) == 0
+    good_ics = (output_dir / "a.ics").read_bytes()
+    write_csv(input_dir / "b.csv", '"B Quiz","2026-09-12"')
+    real_write_bytes = Path.write_bytes
+
+    def disk_full_for_a(self, data):
+        if self.name.startswith("a."):
+            real_write_bytes(self, data[:20])
+            raise OSError(28, "No space left on device")
+        return real_write_bytes(self, data)
+
+    monkeypatch.setattr(Path, "write_bytes", disk_full_for_a)
+    assert csv_to_ics.main([str(input_dir), "-o", str(output_dir), "--move-processed"]) == 1
+
+    assert (output_dir / "a.ics").read_bytes() == good_ics
+    assert sorted(p.name for p in output_dir.iterdir()) == ["a.ics", "b.ics"]  # no temp file left behind
+    assert (input_dir / "a.csv").is_file()
+    assert "No space left on device" in capsys.readouterr().err
+
+
+def test_header_with_trailing_commas_still_catches_unquoted_commas(tmp_path):
+    path = tmp_path / "cs101.csv"
+    path.write_text(HEADER.rstrip("\n") + ",,\n" + '"CS101 Quiz",2026-09-11,,,,,,Quiz, Graded\n', encoding="utf-8")
+
+    calendar, errors = csv_to_ics.convert_csv(path, TZ)
+
+    assert not calendar.events
+    assert len(errors) == 1 and "more cells than columns" in errors[0]
+
+
+def test_csv_archived_from_a_single_file_run_is_not_converted_again(tmp_path):
+    input_dir, output_dir = tmp_path / "input", tmp_path / "out"
+    write_csv(input_dir / "fall" / "cs101.csv", '"CS101 Quiz","2026-09-11"')
+    assert csv_to_ics.main([str(input_dir / "fall" / "cs101.csv"), "-o", str(output_dir), "--move-processed"]) == 0
+    assert (input_dir / "fall" / "processed" / "cs101.csv").is_file()
+
+    assert csv_to_ics.main([str(input_dir), "-o", str(output_dir)]) == 1  # nothing left to convert
+
+    assert not (output_dir / "fall").exists()

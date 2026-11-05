@@ -20,6 +20,7 @@ DEFAULT_TZ = "America/Chicago"
 DATE_FORMAT = "%Y-%m-%d"
 TIME_FORMAT = "%H:%M"
 REQUIRED_COLUMNS = ("Subject", "Start Date")
+KNOWN_COLUMNS = ("Subject", "Start Date", "Start Time", "End Date", "End Time", "Description", "Alarm", "Categories")
 PROCESSED_DIRNAME = "processed"
 
 
@@ -145,9 +146,19 @@ def convert_csv(csv_path: Path, tz: ZoneInfo) -> tuple[Calendar, list[str]]:
         try:
             header = next((cells for cells in reader if any(c.strip() for c in cells)), [])  # skip leading blank lines
             fieldnames = [name.strip() for name in header]
+            while fieldnames and not fieldnames[-1]:  # spreadsheet apps may add trailing commas
+                fieldnames.pop()
             missing = [c for c in REQUIRED_COLUMNS if c not in fieldnames]
             if missing:
                 errors.append(f"{csv_path}: missing required column(s): {', '.join(missing)}")
+                return calendar, errors
+            # A misspelled column would be ignored, silently turning e.g. an exam into an all-day event.
+            unknown = [repr(c) for i, c in enumerate(fieldnames) if c not in KNOWN_COLUMNS or c in fieldnames[:i]]
+            if unknown:
+                errors.append(
+                    f"{csv_path}: unknown or repeated column(s): {', '.join(unknown)} "
+                    f"(expected {', '.join(KNOWN_COLUMNS)})"
+                )
                 return calendar, errors
 
             # A quoted cell can span lines, and line_num is the last line read so far.
@@ -198,10 +209,11 @@ def find_csv_files(input_path: Path) -> list[Path]:
     """
     if input_path.is_file():
         return [input_path]
-    processed = input_path / PROCESSED_DIRNAME
+    # Any depth: converting one file archives it next to that file, e.g. fall/processed/.
     return sorted(
         p for p in input_path.rglob("*")
-        if p.suffix.lower() == ".csv" and p.is_file() and processed not in p.parents
+        if p.suffix.lower() == ".csv" and p.is_file()
+        and PROCESSED_DIRNAME not in p.relative_to(input_path).parts[:-1]
     )
 
 
@@ -268,26 +280,35 @@ def main(argv: list[str] | None = None) -> int:
             continue
         written[output_path] = csv_path
 
-        calendar, errors = convert_csv(csv_path, tz)
-        for message in errors:
-            print(f"error: {message}", file=sys.stderr)
-        had_errors = had_errors or bool(errors)
-        if errors and not calendar.events:
-            # Keep an .ics from an earlier good run rather than replace it with an empty calendar.
-            print(f"error: {csv_path}: no events converted, not writing {output_path}", file=sys.stderr)
-            continue
+        tmp_path = output_path.with_name(output_path.name + ".tmp")
+        try:
+            calendar, errors = convert_csv(csv_path, tz)
+            for message in errors:
+                print(f"error: {message}", file=sys.stderr)
+            had_errors = had_errors or bool(errors)
+            if not calendar.events:
+                # Keep an .ics from an earlier good run rather than replace it with an empty calendar.
+                print(f"error: {csv_path}: no events converted, not writing {output_path}", file=sys.stderr)
+                had_errors = True
+                continue
 
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_bytes(calendar.to_ical())
-        count = len(calendar.events)
-        print(f"{csv_path} -> {output_path} ({count} event{'s' if count != 1 else ''})")
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            # Write a temp file and swap it in, so a failed write never truncates an earlier good .ics.
+            tmp_path.write_bytes(calendar.to_ical())
+            tmp_path.replace(output_path)
+            count = len(calendar.events)
+            print(f"{csv_path} -> {output_path} ({count} event{'s' if count != 1 else ''})")
 
-        if args.move_processed and not errors:
-            # Never overwrite a CSV archived by an earlier run (e.g. fixed and re-run).
-            processed_path = unused_path(input_root / PROCESSED_DIRNAME / relative)
-            processed_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(csv_path), str(processed_path))
-            print(f"moved {csv_path} -> {processed_path}")
+            if args.move_processed and not errors:
+                # Never overwrite a CSV archived by an earlier run (e.g. fixed and re-run).
+                processed_path = unused_path(input_root / PROCESSED_DIRNAME / relative)
+                processed_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(csv_path), str(processed_path))
+                print(f"moved {csv_path} -> {processed_path}")
+        except OSError as exc:  # e.g. an unreadable CSV, a full disk, a CSV that Excel holds open
+            print(f"error: {csv_path}: {exc}", file=sys.stderr)
+            had_errors = True
+            tmp_path.unlink(missing_ok=True)
 
     return 1 if had_errors else 0
 
