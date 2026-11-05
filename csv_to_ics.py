@@ -6,9 +6,9 @@ Each CSV row becomes one calendar event. See README.md for the column format.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import hashlib
-import shutil
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -203,7 +203,7 @@ def convert_csv(csv_path: Path, tz: ZoneInfo) -> tuple[Calendar, list[str]]:
 
 
 def find_csv_files(input_path: Path) -> list[Path]:
-    """List the CSV files to convert, skipping the processed/ folder.
+    """List the CSV files to convert, skipping processed/ folders.
 
     The extension match ignores case, since Excel and other tools often write ".CSV".
     """
@@ -303,12 +303,14 @@ def main(argv: list[str] | None = None) -> int:
                 # Never overwrite a CSV archived by an earlier run (e.g. fixed and re-run).
                 processed_path = unused_path(input_root / PROCESSED_DIRNAME / relative)
                 processed_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(csv_path), str(processed_path))
+                # rename, not shutil.move: if it fails (e.g. Excel holds the file), nothing has been copied.
+                csv_path.rename(processed_path)
                 print(f"moved {csv_path} -> {processed_path}")
         except OSError as exc:  # e.g. an unreadable CSV, a full disk, a CSV that Excel holds open
             print(f"error: {csv_path}: {exc}", file=sys.stderr)
             had_errors = True
-            tmp_path.unlink(missing_ok=True)
+            with contextlib.suppress(OSError):
+                tmp_path.unlink(missing_ok=True)
 
     return 1 if had_errors else 0
 

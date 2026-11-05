@@ -342,6 +342,9 @@ BAD_CSVS = {
     "header only": HEADER.encode(),
     "blank rows only": (HEADER + ",,,,,,,\n").encode(),
     "misspelled column": (HEADER.replace("Start Time", "Start time") + '"A Exam","2026-09-11","10:00"\n').encode(),
+    "missing required column": b"Title,Date\nX,2026-09-11\n",
+    "every row invalid": (HEADER + '"A Quiz","2026-13-45"\n').encode(),
+    "unnamed column in the middle": b"Subject,,Start Date\nA Quiz,x,2026-09-11\n",
     "repeated column": (HEADER.replace("Alarm", "Description") + '"A Quiz","2026-09-11","","","","Room 1","Room 2"\n').encode(),
 }
 
@@ -404,3 +407,22 @@ def test_csv_archived_from_a_single_file_run_is_not_converted_again(tmp_path):
     assert csv_to_ics.main([str(input_dir), "-o", str(output_dir)]) == 1  # nothing left to convert
 
     assert not (output_dir / "fall").exists()
+
+
+def test_failed_archive_leaves_the_csv_in_one_place_and_the_batch_goes_on(tmp_path, monkeypatch, capsys):
+    input_dir, output_dir = tmp_path / "input", tmp_path / "out"
+    write_csv(input_dir / "a.csv", '"A Quiz","2026-09-11"')
+    write_csv(input_dir / "b.csv", '"B Quiz","2026-09-12"')
+    real_rename = Path.rename
+
+    def locked_a(self, target):  # e.g. Excel holds a.csv open on Windows
+        if self.name == "a.csv":
+            raise PermissionError(13, "Permission denied")
+        return real_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", locked_a)
+    assert csv_to_ics.main([str(input_dir), "-o", str(output_dir), "--move-processed"]) == 1
+
+    assert (input_dir / "a.csv").is_file()
+    assert sorted(p.name for p in (input_dir / "processed").iterdir()) == ["b.csv"]
+    assert "Permission denied" in capsys.readouterr().err
