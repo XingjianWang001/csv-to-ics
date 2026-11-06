@@ -49,9 +49,9 @@ def make_uid(subject: str, start_date: str, start_time: str) -> str:
     return f"{digest}@csv-to-ics"
 
 
-def row_to_event(row: dict[str, str | None], tz: ZoneInfo) -> Event:
+def row_to_event(row: dict[str, str], tz: ZoneInfo) -> Event:
     """Turn one CSV row into an Event, raising RowError if the row is invalid."""
-    values = {key: (value or "").strip() for key, value in row.items() if key is not None}
+    values = {key: value.strip() for key, value in row.items()}
     subject = values.get("Subject", "")
     start_date_str = values.get("Start Date", "")
     start_time_str = values.get("Start Time", "")
@@ -143,6 +143,7 @@ def convert_csv(csv_path: Path, tz: ZoneInfo) -> tuple[Calendar, list[str]]:
     with csv_path.open(newline="", encoding="utf-8-sig") as f:
         # Not DictReader: it skips blank lines unseen, which hides the line a row starts on.
         reader = csv.reader(f, strict=True)
+        next_line = 1  # where the row being read starts; a csv.Error's line_num is wherever the parser gave up
         try:
             header = next((cells for cells in reader if any(c.strip() for c in cells)), [])  # skip leading blank lines
             fieldnames = [name.strip() for name in header]
@@ -190,7 +191,10 @@ def convert_csv(csv_path: Path, tz: ZoneInfo) -> tuple[Calendar, list[str]]:
             errors.append(f"{csv_path}: file is not UTF-8; re-save it as \"CSV UTF-8\"")
             return Calendar(), errors  # no events, so main() keeps the old .ics
         except csv.Error as exc:  # e.g. a quote that is never closed
-            errors.append(f"{csv_path}: not valid CSV near line {reader.line_num} ({exc}); check for an unclosed quote")
+            errors.append(
+                f"{csv_path}:{next_line}: not valid CSV ({exc}); check this row for an unclosed quote, "
+                'or a quote inside a quoted value that is not doubled ("")'
+            )
             return Calendar(), errors
 
     days = [d.date() if isinstance(d, datetime) else d for e in calendar.events for d in (e.start, e.end)]
@@ -250,6 +254,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    # A redirected stdout on Windows is e.g. cp1252: printing a Chinese file name must not fail.
+    with contextlib.suppress(AttributeError):  # no reconfigure: not a real text stream, or None under pythonw
+        sys.stdout.reconfigure(errors="backslashreplace")
 
     try:
         tz = ZoneInfo(args.tz)
@@ -306,7 +313,7 @@ def main(argv: list[str] | None = None) -> int:
                 # rename, not shutil.move: if it fails (e.g. Excel holds the file), nothing has been copied.
                 csv_path.rename(processed_path)
                 print(f"moved {csv_path} -> {processed_path}")
-        except OSError as exc:  # e.g. an unreadable CSV, a full disk, a CSV that Excel holds open
+        except Exception as exc:  # e.g. an unreadable CSV, a full disk, a CSV Excel holds open: never stop the batch
             print(f"error: {csv_path}: {exc}", file=sys.stderr)
             had_errors = True
             with contextlib.suppress(OSError):
