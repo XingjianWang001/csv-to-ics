@@ -445,7 +445,7 @@ def test_any_error_in_one_file_is_reported_and_the_batch_goes_on(tmp_path, monke
     monkeypatch.setattr(csv_to_ics, "convert_csv", unexpected_error_for_a)
     assert csv_to_ics.main([str(input_dir), "-o", str(output_dir), "--move-processed"]) == 1
 
-    assert "a.csv: something no one planned for" in capsys.readouterr().err
+    assert "a.csv: LookupError: something no one planned for" in capsys.readouterr().err
     assert (input_dir / "a.csv").is_file()
     assert (output_dir / "b.ics").is_file()
 
@@ -462,10 +462,14 @@ def test_a_file_name_stdout_cannot_encode_is_converted_and_the_batch_goes_on(tmp
     assert sorted(p.name for p in (input_dir / "processed").iterdir()) == ["a-计算机.csv", "b.csv"]
 
 
-def test_unclosed_quote_is_reported_at_the_row_it_starts_on(tmp_path):
+@pytest.mark.parametrize("text, line", [
+    (HEADER + '"A Quiz,2026-09-11\n"B Quiz","2026-09-12"\n"C Quiz","2026-09-13"\n', 2),
+    ('\n\n"Subject,Start Date\n"A Quiz","2026-09-11"\n', 3),
+], ids=["row left open to the end of the file", "header after blank lines"])
+def test_bad_quote_is_reported_at_the_line_its_row_starts_on(tmp_path, text, line):
     path = tmp_path / "a.csv"
-    path.write_text(HEADER + '"A Quiz,2026-09-11\n"B Quiz","2026-09-12"\n"C Quiz","2026-09-13"\n', encoding="utf-8")
+    path.write_text(text, encoding="utf-8")
 
     _, errors = csv_to_ics.convert_csv(path, TZ)
 
-    assert len(errors) == 1 and errors[0].startswith(f"{path}:2: not valid CSV")
+    assert len(errors) == 1 and errors[0].startswith(f"{path}:{line}: not valid CSV")

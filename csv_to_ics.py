@@ -143,9 +143,14 @@ def convert_csv(csv_path: Path, tz: ZoneInfo) -> tuple[Calendar, list[str]]:
     with csv_path.open(newline="", encoding="utf-8-sig") as f:
         # Not DictReader: it skips blank lines unseen, which hides the line a row starts on.
         reader = csv.reader(f, strict=True)
-        next_line = 1  # where the row being read starts; a csv.Error's line_num is wherever the parser gave up
+        next_line = 1  # the line the row being read starts on
         try:
-            header = next((cells for cells in reader if any(c.strip() for c in cells)), [])  # skip leading blank lines
+            header = []
+            for cells in reader:  # skip leading blank lines
+                if any(c.strip() for c in cells):
+                    header = cells
+                    break
+                next_line = reader.line_num + 1
             fieldnames = [name.strip() for name in header]
             while fieldnames and not fieldnames[-1]:  # spreadsheet apps may add trailing commas
                 fieldnames.pop()
@@ -314,7 +319,7 @@ def main(argv: list[str] | None = None) -> int:
                 csv_path.rename(processed_path)
                 print(f"moved {csv_path} -> {processed_path}")
         except Exception as exc:  # e.g. an unreadable CSV, a full disk, a CSV Excel holds open: never stop the batch
-            print(f"error: {csv_path}: {exc}", file=sys.stderr)
+            print(f"error: {csv_path}: {type(exc).__name__}: {exc}", file=sys.stderr)
             had_errors = True
             with contextlib.suppress(OSError):
                 tmp_path.unlink(missing_ok=True)
