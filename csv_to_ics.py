@@ -300,9 +300,7 @@ def main(argv: list[str] | None = None) -> int:
             continue
         written[output_path] = csv_path
 
-        # Through a symlink (e.g. into a synced folder), so the linked calendar is the one updated.
-        target = output_path.resolve()
-        tmp_path = target.with_name(target.name + ".tmp")
+        tmp_path = None
         try:
             calendar, errors = convert_csv(csv_path, tz)
             for message in errors:
@@ -315,6 +313,9 @@ def main(argv: list[str] | None = None) -> int:
                 continue
 
             output_path.parent.mkdir(parents=True, exist_ok=True)
+            # Through a symlink (e.g. into a synced folder), so the linked calendar is the one updated.
+            target = output_path.resolve()  # inside the try: a symlink loop raises
+            tmp_path = target.with_name(target.name + ".tmp")
             # Write a temp file and swap it in, so a failed write never truncates an earlier good .ics.
             tmp_path.write_bytes(calendar.to_ical())
             tmp_path.replace(target)
@@ -331,8 +332,9 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:  # e.g. an unreadable CSV, a full disk, a CSV Excel holds open: never stop the batch
             print(f"error: {csv_path}: {type(exc).__name__}: {exc}", file=sys.stderr)
             had_errors = True
-            with contextlib.suppress(OSError):
-                tmp_path.unlink(missing_ok=True)
+            if tmp_path:
+                with contextlib.suppress(OSError):
+                    tmp_path.unlink(missing_ok=True)
 
     return 1 if had_errors else 0
 

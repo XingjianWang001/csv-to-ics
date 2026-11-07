@@ -509,3 +509,16 @@ def test_a_symlinked_ics_is_updated_through_the_link(tmp_path):
 
     assert (output_dir / "c.ics").is_symlink()
     assert "New Quiz" in synced.read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlinks need extra rights on Windows")
+def test_a_symlink_loop_at_the_output_stays_per_file(tmp_path):
+    input_dir, output_dir = tmp_path / "input", tmp_path / "out"
+    write_csv(input_dir / "a.csv", '"A Quiz","2026-09-11"')
+    write_csv(input_dir / "b.csv", '"B Quiz","2026-09-12"')
+    output_dir.mkdir()
+    (output_dir / "a.ics").symlink_to(output_dir / "a.ics")
+
+    assert csv_to_ics.main([str(input_dir), "-o", str(output_dir)]) == 1
+
+    assert (output_dir / "b.ics").is_file()
