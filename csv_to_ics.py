@@ -74,7 +74,7 @@ def row_to_event(row: dict[str, str], tz: ZoneInfo) -> Event:
         start = _parse_time(start_date, start_time_str, "Start Time", tz)
         if end_time_str:
             end = _parse_time(end_date or start_date, end_time_str, "End Time", tz)
-        elif end_date:
+        elif end_date and end_date != start_date:  # the same day reads as "left blank", as the README says
             raise RowError("End Date is set but End Time is empty")
         else:
             # A point in time, e.g. "due at 23:59".
@@ -221,9 +221,17 @@ def find_csv_files(input_path: Path) -> list[Path]:
     # Any depth: converting one file archives it next to that file, e.g. fall/processed/.
     return sorted(
         p for p in input_path.rglob("*")
-        if p.suffix.lower() == ".csv" and p.is_file()
+        if p.suffix.lower() == ".csv" and _is_file_or_unreadable(p)
         and PROCESSED_DIRNAME not in p.relative_to(input_path).parts[:-1]
     )
+
+
+def _is_file_or_unreadable(path: Path) -> bool:
+    # Path.is_file raises on EACCES/EIO; listing it lets main()'s per-file handler report that one file.
+    try:
+        return path.is_file()
+    except OSError:
+        return True
 
 
 def unused_path(path: Path) -> Path:
@@ -292,7 +300,9 @@ def main(argv: list[str] | None = None) -> int:
             continue
         written[output_path] = csv_path
 
-        tmp_path = output_path.with_name(output_path.name + ".tmp")
+        # Through a symlink (e.g. into a synced folder), so the linked calendar is the one updated.
+        target = output_path.resolve()
+        tmp_path = target.with_name(target.name + ".tmp")
         try:
             calendar, errors = convert_csv(csv_path, tz)
             for message in errors:
@@ -307,7 +317,7 @@ def main(argv: list[str] | None = None) -> int:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             # Write a temp file and swap it in, so a failed write never truncates an earlier good .ics.
             tmp_path.write_bytes(calendar.to_ical())
-            tmp_path.replace(output_path)
+            tmp_path.replace(target)
             count = len(calendar.events)
             print(f"{csv_path} -> {output_path} ({count} event{'s' if count != 1 else ''})")
 

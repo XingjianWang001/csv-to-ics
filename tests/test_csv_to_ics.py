@@ -54,11 +54,11 @@ def test_multi_day_all_day_event():
     assert event.decoded("dtend") == date(2026, 10, 21)
 
 
-@pytest.mark.parametrize("end_time", ["", "23:59"])
-def test_point_in_time_event_has_no_dtend(end_time):
+@pytest.mark.parametrize("end_date, end_time", [("", ""), ("", "23:59"), ("2026-09-18", "")])
+def test_point_in_time_event_has_no_dtend(end_date, end_time):
     event = event_from(**{
         "Subject": "CS101 HW1 Due", "Start Date": "2026-09-18", "Start Time": "23:59",
-        "End Time": end_time,
+        "End Date": end_date, "End Time": end_time,  # End Date = Start Date reads as blank (README)
     })
     assert event.decoded("dtstart") == datetime(2026, 9, 18, 23, 59, tzinfo=TZ)
     assert "dtend" not in event  # RFC 5545: DTEND must be later than DTSTART
@@ -473,3 +473,39 @@ def test_bad_quote_is_reported_at_the_line_its_row_starts_on(tmp_path, text, lin
     _, errors = csv_to_ics.convert_csv(path, TZ)
 
     assert len(errors) == 1 and errors[0].startswith(f"{path}:{line}: not valid CSV")
+
+
+def test_an_unreadable_entry_found_while_listing_is_reported_and_the_batch_goes_on(tmp_path, monkeypatch, capsys):
+    input_dir, output_dir = tmp_path / "input", tmp_path / "out"
+    write_csv(input_dir / "a.csv", '"A Quiz","2026-09-11"')
+    write_csv(input_dir / "locked" / "x.csv", '"X Quiz","2026-09-12"')
+    write_csv(input_dir / "z.csv", '"Z Quiz","2026-09-13"')
+    real_is_file = Path.is_file
+
+    real_convert = csv_to_ics.convert_csv
+
+    def in_locked(path):  # a folder that can be listed but not entered, or a stale network mount
+        if path.parent.name == "locked":
+            raise PermissionError(13, "Permission denied", str(path))
+
+    monkeypatch.setattr(Path, "is_file", lambda path: in_locked(path) or real_is_file(path))
+    monkeypatch.setattr(csv_to_ics, "convert_csv", lambda path, tz: in_locked(path) or real_convert(path, tz))
+    assert csv_to_ics.main([str(input_dir), "-o", str(output_dir)]) == 1
+
+    assert "x.csv" in capsys.readouterr().err
+    assert (output_dir / "a.ics").is_file() and (output_dir / "z.ics").is_file()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlinks need extra rights on Windows")
+def test_a_symlinked_ics_is_updated_through_the_link(tmp_path):
+    input_dir, output_dir, synced = tmp_path / "input", tmp_path / "out", tmp_path / "sync" / "c.ics"
+    write_csv(input_dir / "c.csv", '"New Quiz","2026-09-11"')
+    synced.parent.mkdir()
+    synced.write_text("old calendar", encoding="utf-8")
+    output_dir.mkdir()
+    (output_dir / "c.ics").symlink_to(synced)  # e.g. a file behind a calendar subscription URL
+
+    assert csv_to_ics.main([str(input_dir), "-o", str(output_dir)]) == 0
+
+    assert (output_dir / "c.ics").is_symlink()
+    assert "New Quiz" in synced.read_text(encoding="utf-8")
