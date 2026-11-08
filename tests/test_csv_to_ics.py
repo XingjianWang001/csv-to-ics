@@ -266,6 +266,19 @@ def test_main_finds_uppercase_csv_extension(tmp_path):
     assert (output_dir / "CS101.ics").is_file()
 
 
+def test_hidden_files_such_as_macos_appledouble_are_skipped(tmp_path):
+    input_dir, output_dir = tmp_path / "input", tmp_path / "out"
+    write_csv(input_dir / "a.csv", '"A Quiz","2026-09-11"')
+    # macOS writes these next to a.csv on exFAT/FAT/SMB drives, and into __MACOSX/ in Finder zips.
+    for sidecar in (input_dir / "._a.csv", input_dir / "__MACOSX" / "._a.csv"):
+        sidecar.parent.mkdir(exist_ok=True)
+        sidecar.write_bytes(b"\x00\x05\x16\x07\x00\x02\x00\x00Mac OS X        \xff\xff")
+
+    assert csv_to_ics.main([str(input_dir), "-o", str(output_dir)]) == 0
+
+    assert [p.name for p in output_dir.rglob("*")] == ["a.ics"]
+
+
 def test_main_reports_csv_files_that_would_share_an_output_file(tmp_path):
     input_dir = tmp_path / "input"
     write_csv(input_dir / "a.csv", '"Lower Quiz","2026-09-11"')
@@ -497,11 +510,12 @@ def test_an_unreadable_entry_found_while_listing_is_reported_and_the_batch_goes_
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="symlinks need extra rights on Windows")
-def test_a_symlinked_ics_is_updated_through_the_link(tmp_path):
+def test_replacing_an_ics_keeps_its_link_and_permissions(tmp_path):
     input_dir, output_dir, synced = tmp_path / "input", tmp_path / "out", tmp_path / "sync" / "c.ics"
     write_csv(input_dir / "c.csv", '"New Quiz","2026-09-11"')
     synced.parent.mkdir()
     synced.write_text("old calendar", encoding="utf-8")
+    synced.chmod(0o600)  # a private schedule
     output_dir.mkdir()
     (output_dir / "c.ics").symlink_to(synced)  # e.g. a file behind a calendar subscription URL
 
@@ -509,6 +523,7 @@ def test_a_symlinked_ics_is_updated_through_the_link(tmp_path):
 
     assert (output_dir / "c.ics").is_symlink()
     assert "New Quiz" in synced.read_text(encoding="utf-8")
+    assert synced.stat().st_mode & 0o777 == 0o600
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="symlinks need extra rights on Windows")

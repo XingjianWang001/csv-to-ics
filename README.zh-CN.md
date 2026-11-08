@@ -42,7 +42,7 @@ python csv_to_ics.py input --move-processed
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
-| `input` | （必填） | 一个 `.csv` 文件，或包含 `.csv` 的目录。任意层级的 `processed/` 子目录都会跳过。 |
+| `input` | （必填） | 一个 `.csv` 文件，或包含 `.csv` 的目录。任意层级的 `processed/` 子目录都会跳过，隐藏文件（例如 macOS 生成的 `._name.csv`）也会跳过。 |
 | `-o`, `--output` | `./output` | `.ics` 输出目录，保留输入目录的子目录结构。 |
 | `--tz` | `America/Chicago` | 带时间的行所用的 [IANA 时区](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)。 |
 | `--move-processed` | 关闭 | CSV 转换无错误后，移到输入目录下的 `processed/`。若已有同名文件，会在文件名后加 `-1`、`-2`……，不会覆盖。 |
