@@ -316,7 +316,7 @@ def main(argv: list[str] | None = None) -> int:
 
             output_path.parent.mkdir(parents=True, exist_ok=True)
             # Through a symlink (e.g. into a synced folder), so the linked calendar is the one updated.
-            target = output_path.resolve()  # inside the try: up to Python 3.12 a symlink loop raises
+            target = output_path.resolve()  # inside the try: a symlink loop raises (from 3.13, at copymode)
             tmp_path = target.with_name(target.name + ".tmp")
             # Write a temp file and swap it in, so a failed write never truncates an earlier good .ics.
             tmp_path.touch()

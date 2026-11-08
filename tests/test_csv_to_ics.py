@@ -534,7 +534,6 @@ def test_a_symlink_loop_at_the_output_stays_per_file(tmp_path):
     output_dir.mkdir()
     (output_dir / "a.ics").symlink_to(output_dir / "a.ics")
 
-    # Up to 3.12 resolve() raises, so a.csv is an error; from 3.13 it returns the link, which is replaced.
-    csv_to_ics.main([str(input_dir), "-o", str(output_dir)])
+    assert csv_to_ics.main([str(input_dir), "-o", str(output_dir)]) == 1
 
     assert (output_dir / "b.ics").is_file()
