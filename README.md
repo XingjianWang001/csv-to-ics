@@ -42,7 +42,7 @@ python csv_to_ics.py input --move-processed
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `input` | (required) | A `.csv` file, or a folder of `.csv` files. `processed/` subfolders are skipped at any depth. |
+| `input` | (required) | A `.csv` file, or a folder of `.csv` files. `processed/` subfolders are skipped at any depth, and so are hidden files such as macOS's `._name.csv`. |
 | `-o`, `--output` | `./output` | Folder for the `.ics` files. The input folder's subfolder layout is kept. |
 | `--tz` | `America/Chicago` | [IANA time zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) for rows that have a time. |
 | `--move-processed` | off | After a CSV converts with no errors, move it to `processed/` inside the input folder. If a file with that name is already there, `-1`, `-2`, … is added to the name instead of overwriting it. |
