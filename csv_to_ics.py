@@ -9,6 +9,7 @@ import argparse
 import contextlib
 import csv
 import hashlib
+import os
 import shutil
 import sys
 from datetime import date, datetime, timedelta, timezone
@@ -219,13 +220,22 @@ def find_csv_files(input_path: Path) -> list[Path]:
     """
     if input_path.is_file():
         return [input_path]
-    # Any depth: converting one file archives it next to that file, e.g. fall/processed/.
-    return sorted(
-        p for p in input_path.rglob("*")
-        # Hidden: e.g. macOS's ._a.csv sidecars on exFAT/SMB drives and in __MACOSX/ of zips are not CSV.
-        if p.suffix.lower() == ".csv" and not p.name.startswith(".") and _is_file_or_unreadable(p)
-        and PROCESSED_DIRNAME not in p.relative_to(input_path).parts[:-1]
-    )
+    found: list[Path] = []
+
+    def unlistable(exc: OSError) -> None:
+        # Not rglob: it skips a folder it cannot list without a word; listing it lets main() report it.
+        if Path(exc.filename) != input_path:  # the input folder itself: main() says no .csv files found
+            found.append(Path(exc.filename))
+
+    for root, dirs, names in os.walk(input_path, onerror=unlistable):
+        # Any depth: converting one file archives it next to that file, e.g. fall/processed/.
+        dirs[:] = [d for d in dirs if d != PROCESSED_DIRNAME]
+        found += [
+            p for p in (Path(root, name) for name in names)
+            # Hidden: e.g. macOS's ._a.csv sidecars on exFAT/SMB drives and in __MACOSX/ of zips are not CSV.
+            if p.suffix.lower() == ".csv" and not p.name.startswith(".") and _is_file_or_unreadable(p)
+        ]
+    return sorted(found)
 
 
 def _is_file_or_unreadable(path: Path) -> bool:
