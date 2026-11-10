@@ -1,4 +1,5 @@
 import io
+import os
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -492,8 +493,9 @@ def test_an_unreadable_entry_found_while_listing_is_reported_and_the_batch_goes_
     input_dir, output_dir = tmp_path / "input", tmp_path / "out"
     write_csv(input_dir / "a.csv", '"A Quiz","2026-09-11"')
     write_csv(input_dir / "locked" / "x.csv", '"X Quiz","2026-09-12"')
+    write_csv(input_dir / "unlistable" / "y.csv", '"Y Quiz","2026-09-12"')
     write_csv(input_dir / "z.csv", '"Z Quiz","2026-09-13"')
-    real_is_file = Path.is_file
+    real_is_file, real_scandir = Path.is_file, os.scandir
 
     real_convert = csv_to_ics.convert_csv
 
@@ -501,11 +503,17 @@ def test_an_unreadable_entry_found_while_listing_is_reported_and_the_batch_goes_
         if path.parent.name == "locked":
             raise PermissionError(13, "Permission denied", str(path))
 
+    def unlistable(path):  # a folder that can be entered but not listed (e.g. chmod 0311, an ACL)
+        if Path(path).name == "unlistable":
+            raise PermissionError(13, "Permission denied", str(path))
+
     monkeypatch.setattr(Path, "is_file", lambda path: in_locked(path) or real_is_file(path))
+    monkeypatch.setattr(os, "scandir", lambda path=".": unlistable(path) or real_scandir(path))
     monkeypatch.setattr(csv_to_ics, "convert_csv", lambda path, tz: in_locked(path) or real_convert(path, tz))
     assert csv_to_ics.main([str(input_dir), "-o", str(output_dir)]) == 1
 
-    assert "x.csv" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "x.csv" in err and f"error: {input_dir / 'unlistable'}:" in err
     assert (output_dir / "a.ics").is_file() and (output_dir / "z.ics").is_file()
 
 
